@@ -22,6 +22,8 @@ type UtilizationWindow struct {
 	// Scoped marks a narrow/extra window (e.g. codexbar's "Fable only") so the UI
 	// can exclude it from the at-a-glance peak while still listing it.
 	Scoped bool `json:"scoped,omitempty"`
+	// WindowSeconds retains the source duration for the MCP routing projection.
+	WindowSeconds *int64 `json:"window_seconds,omitempty"`
 }
 
 // Pace carries codexbar's optional burn-rate summary for a window ("52% in
@@ -266,11 +268,17 @@ func (u *cbUsage) windows(provider string) []UtilizationWindow {
 }
 
 func (w *cbWindow) toWindow(label string) UtilizationWindow {
+	var seconds *int64
+	if w.WindowMinutes > 0 {
+		value := int64(w.WindowMinutes) * 60
+		seconds = &value
+	}
 	return UtilizationWindow{
 		Label:            label,
 		UtilizationPct:   w.UsedPercent,
 		ResetAt:          parseTimeOr(w.ResetsAt, time.Time{}),
 		ResetDescription: w.ResetDescription,
+		WindowSeconds:    seconds,
 	}
 }
 

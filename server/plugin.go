@@ -179,6 +179,20 @@ func (p *plugin) pollOnce(ctx context.Context, maxAge time.Duration) *AllProvide
 	defer cancel()
 	report := p.collectProviders(runCtx)
 	p.mu.Lock()
+	// A failed provider probe must not evict a still-useful value from the
+	// previous poll. Keep the failed record too, so the agent tool can report a
+	// partial snapshot without causing more provider I/O.
+	if p.snapshot != nil {
+		prior := make(map[string]ProviderUsage, len(p.snapshot.Providers))
+		for _, usage := range p.snapshot.Providers {
+			prior[usage.Provider] = usage
+		}
+		for _, unavailable := range report.Unavailable {
+			if usage, ok := prior[unavailable.Provider]; ok {
+				report.Providers = append(report.Providers, usage)
+			}
+		}
+	}
 	p.snapshot, p.snapshotAt = report, p.now()
 	p.mu.Unlock()
 	return report
@@ -372,7 +386,10 @@ func (p *plugin) statusJSON(ctx context.Context, refresh bool) []byte {
 // unavailable rather than silently dropping it.
 type ProviderError struct {
 	Provider string `json:"provider"`
-	Message  string `json:"message"`
+	// Kind is a stable adapter classification. The agent tool deliberately never
+	// exposes Message, which may contain upstream diagnostics or credentials.
+	Kind    string `json:"kind,omitempty"`
+	Message string `json:"message"`
 }
 
 // AllProvidersReport is the providers-webhook payload rendered by the Settings
@@ -519,7 +536,7 @@ func (p *plugin) collectProviders(ctx context.Context) *AllProvidersReport {
 	entries := p.queryProviders(ctx, cmd, p.providerList(ctx), report)
 	for _, e := range entries {
 		if e.Error != nil {
-			report.Unavailable = append(report.Unavailable, ProviderError{Provider: e.Provider, Message: e.Error.Message})
+			report.Unavailable = append(report.Unavailable, ProviderError{Provider: e.Provider, Kind: e.Error.Kind, Message: e.Error.Message})
 			continue
 		}
 		if u := e.toProviderUsage(p.now()); u != nil {
@@ -556,7 +573,7 @@ func (p *plugin) appendAugment(ctx context.Context, report *AllProvidersReport) 
 	usage, err := client.fetchUsage(cctx)
 	if err != nil {
 		log.Printf("augment usage fetch failed: %v", err)
-		report.Unavailable = append(report.Unavailable, ProviderError{Provider: "augment", Message: err.Error()})
+		report.Unavailable = append(report.Unavailable, ProviderError{Provider: "augment", Kind: "provider_unavailable", Message: err.Error()})
 		return
 	}
 	report.Providers = append(report.Providers, *usage)
@@ -620,7 +637,7 @@ func (p *plugin) queryProviders(ctx context.Context, cmd resolvedCommand, provid
 	if providers == nil {
 		entries, err := runUsage(ctx, cmd, p.run, providersAll)
 		if err != nil {
-			report.Unavailable = append(report.Unavailable, ProviderError{Provider: providersAll, Message: err.Error()})
+			report.Unavailable = append(report.Unavailable, ProviderError{Provider: providersAll, Kind: "provider_unavailable", Message: err.Error()})
 		}
 		return entries
 	}
@@ -641,6 +658,7 @@ func (p *plugin) queryProviders(ctx context.Context, cmd resolvedCommand, provid
 			if err != nil {
 				results[i] = result{perr: &ProviderError{
 					Provider: prov,
+					Kind:     "provider_unavailable",
 					Message:  providerErrMessage(err, cctx, ctx),
 				}}
 				return
