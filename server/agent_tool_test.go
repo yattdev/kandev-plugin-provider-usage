@@ -63,11 +63,32 @@ func TestGetProviderUsageIsWellFormedBeforeFirstPoll(t *testing.T) {
 	require.Empty(t, result.StructuredContent["providers"].([]any))
 }
 
+func TestProviderUsageProjectionIsPartialWhenCodexbarIsDegradedButCursorSucceeds(t *testing.T) {
+	now := time.Date(2026, 9, 20, 2, 0, 0, 0, time.UTC)
+	content := providerUsageProjection(&AllProvidersReport{
+		GeneratedAt: now.Format(time.RFC3339),
+		PollMinutes: 5,
+		Providers:   []ProviderUsage{{Provider: "cursor", FetchedAt: now}},
+	}, now, now, "workspace")
+	require.True(t, content["partial"].(bool), "a direct Cursor success does not make a failed CodexBar poll complete")
+}
+
 func TestProviderUsageRecordIsStaleAtExactBoundary(t *testing.T) {
 	now := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
 	r := providerUsageRecord(ProviderUsage{Provider: "codex", FetchedAt: now.Add(-10 * time.Minute)}, time.Time{}, now, 600)
 	require.True(t, r["stale"].(bool))
 	require.Equal(t, "telemetry_stale", r["availability_state"])
+}
+
+func TestProviderUsageRecordStaleTelemetryDoesNotRetainQuotaExhaustionReason(t *testing.T) {
+	now := time.Date(2026, 9, 20, 2, 0, 0, 0, time.UTC)
+	r := providerUsageRecord(ProviderUsage{
+		Provider:  "codex",
+		FetchedAt: now.Add(-10 * time.Minute),
+		Windows:   []UtilizationWindow{{Label: "5-hour", UtilizationPct: 100, ResetAt: now.Add(time.Hour)}},
+	}, time.Time{}, now, 600)
+	require.Equal(t, "telemetry_stale", r["availability_state"])
+	require.NotContains(t, r, "reason", "stale telemetry cannot claim current quota exhaustion")
 }
 
 func TestProviderUsageRecordExhaustionIgnoresScopedWindow(t *testing.T) {
@@ -98,6 +119,19 @@ func TestSanitizedFailureStateAllowlistAndRedaction(t *testing.T) {
 			state, reason := sanitizedFailureState(ProviderError{Kind: tc.kind, Message: "Bearer secret@example.com /home/me/.codex"})
 			require.Equal(t, tc.want, state)
 			require.NotContains(t, reason, "secret")
+		})
+	}
+}
+
+func TestClassifyProviderErrorRecognizesUpstreamAuthAndAvailabilityFailures(t *testing.T) {
+	for _, tc := range []struct{ kind, message, want string }{
+		{"provider", "No Cursor session found.", "not_configured"},
+		{"provider", "Provider not installed: Codex auth.json not found.", "not_configured"},
+		{"provider_unavailable", "upstream unavailable", "provider_unavailable"},
+		{"provider", "unrecognized future provider failure", ""},
+	} {
+		t.Run(tc.message, func(t *testing.T) {
+			require.Equal(t, tc.want, classifyProviderError(tc.kind, tc.message))
 		})
 	}
 }

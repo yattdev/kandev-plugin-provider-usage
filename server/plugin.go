@@ -586,7 +586,7 @@ func (p *plugin) collectProviders(ctx context.Context) *AllProvidersReport {
 	entries := p.queryProviders(ctx, cmd, p.providerList(ctx), report)
 	for _, e := range entries {
 		if e.Error != nil {
-			report.Unavailable = append(report.Unavailable, ProviderError{Provider: e.Provider, Kind: e.Error.Kind, Message: e.Error.Message})
+			report.Unavailable = append(report.Unavailable, ProviderError{Provider: e.Provider, Kind: classifyProviderError(e.Error.Kind, e.Error.Message), Message: e.Error.Message})
 			continue
 		}
 		if u := e.toProviderUsage(p.now()); u != nil {
@@ -684,7 +684,35 @@ func cursorUnavailable(report *AllProvidersReport, err error) {
 			return
 		}
 	}
-	report.Unavailable = append(report.Unavailable, ProviderError{Provider: "cursor", Message: err.Error()})
+	report.Unavailable = append(report.Unavailable, ProviderError{Provider: "cursor", Kind: classifyProviderError("", err.Error()), Message: err.Error()})
+}
+
+// classifyProviderError accepts only a small set of stable adapter kinds and
+// known upstream messages. Everything else remains unclassified so the agent
+// tool never turns arbitrary provider text into a confident routing state.
+func classifyProviderError(kind, message string) string {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "not_configured", "not-configured", "not_installed", "not-installed", "not_signed_in", "not-signed-in", "unauthenticated", "authentication":
+		return "not_configured"
+	case "provider_unavailable", "provider-unavailable", "unavailable":
+		return "provider_unavailable"
+	}
+	message = strings.ToLower(strings.TrimSpace(message))
+	for _, marker := range []string{
+		"no cursor session found", "not signed in", "not logged in",
+		"provider not installed", "auth.json not found", "missing credentials",
+		"session cookie is missing",
+	} {
+		if strings.Contains(message, marker) {
+			return "not_configured"
+		}
+	}
+	for _, marker := range []string{"provider unavailable", "service unavailable", "temporarily unavailable", "network unavailable"} {
+		if strings.Contains(message, marker) {
+			return "provider_unavailable"
+		}
+	}
+	return ""
 }
 
 // appendAugment adds Augment usage to the report when an Augment Analytics token

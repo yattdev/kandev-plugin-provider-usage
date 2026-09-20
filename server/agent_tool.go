@@ -38,7 +38,7 @@ func providerUsageProjection(snap *AllProvidersReport, snapshotAt, now time.Time
 	result := map[string]any{
 		"schema_version": "1", "evaluated_at": now.Format(time.RFC3339),
 		"snapshot_generated_at": nil, "poll_interval_seconds": poll,
-		"stale_after_seconds": staleAfter, "partial": snap == nil || (len(snap.Providers) == 0 && len(snap.Unavailable) == 0 && !snap.Codexbar.Installed),
+		"stale_after_seconds": staleAfter, "partial": snap == nil || !snap.Codexbar.Installed,
 		"scope":     map[string]any{"usage_scope": "instance", "user_scoped": false, "invocation_workspace_id": workspaceID},
 		"providers": []any{},
 	}
@@ -116,6 +116,9 @@ func providerUsageRecord(u ProviderUsage, fetched, now time.Time, staleAfter int
 	}
 	if stale {
 		state = "telemetry_stale"
+		// The retained windows are contextual only once they cross the freshness
+		// boundary. Do not report a current quota-exhaustion reason for them.
+		earliest = time.Time{}
 	}
 	r := map[string]any{"provider_id": u.Provider, "provider_name": providerDisplayName(u.Provider), "account": nil, "support_state": "supported", "availability_state": state, "fetched_at": nil, "age_seconds": age, "stale": stale, "windows": windows}
 	if !fetched.IsZero() {
