@@ -815,7 +815,7 @@ func (p *plugin) queryProviders(ctx context.Context, cmd resolvedCommand, provid
 	if providers == nil {
 		entries, err := runUsage(ctx, cmd, p.run, providersAll)
 		if err != nil {
-			report.Unavailable = append(report.Unavailable, ProviderError{Provider: providersAll, Kind: "provider_unavailable", Message: err.Error()})
+			report.Unavailable = append(report.Unavailable, ProviderError{Provider: providersAll, Kind: hardProviderFailureKind(err), Message: err.Error()})
 		}
 		return entries
 	}
@@ -836,7 +836,7 @@ func (p *plugin) queryProviders(ctx context.Context, cmd resolvedCommand, provid
 			if err != nil {
 				results[i] = result{perr: &ProviderError{
 					Provider: prov,
-					Kind:     "provider_unavailable",
+					Kind:     hardProviderFailureKind(err),
 					Message:  providerErrMessage(err, cctx, ctx),
 				}}
 				return
@@ -855,6 +855,16 @@ func (p *plugin) queryProviders(ctx context.Context, cmd resolvedCommand, provid
 		entries = append(entries, r.entries...)
 	}
 	return entries
+}
+
+// hardProviderFailureKind preserves the established unavailable fallback for a
+// command failure, while recognizing the stable authentication/setup failures
+// that codexbar can only emit on stderr or as non-JSON output.
+func hardProviderFailureKind(err error) string {
+	if kind := classifyProviderError("", err.Error()); kind != "" {
+		return kind
+	}
+	return "provider_unavailable"
 }
 
 // providerErrMessage names what actually went wrong for one provider. A killed

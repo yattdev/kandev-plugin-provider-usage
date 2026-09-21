@@ -136,6 +136,19 @@ func TestClassifyProviderErrorRecognizesUpstreamAuthAndAvailabilityFailures(t *t
 	}
 }
 
+func TestProviderUsageProjectionPreservesHardFailureClassification(t *testing.T) {
+	now := time.Date(2026, 9, 21, 2, 0, 0, 0, time.UTC)
+	content := providerUsageProjection(&AllProvidersReport{
+		GeneratedAt: now.Format(time.RFC3339),
+		Unavailable: []ProviderError{{Provider: "codex", Kind: "not_configured", Message: "Provider not installed: Codex auth.json not found"}},
+	}, now, now, "workspace")
+	providers := content["providers"].([]any)
+	require.Len(t, providers, 1)
+	record := providers[0].(map[string]any)
+	require.Equal(t, "not_configured", record["availability_state"])
+	require.Equal(t, "not_configured", record["reason"].(map[string]any)["code"])
+}
+
 func TestManifestConstrainsNestedWindowsAndReasons(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "manifest.yaml"))
 	require.NoError(t, err)
