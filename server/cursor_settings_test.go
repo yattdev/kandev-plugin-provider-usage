@@ -157,6 +157,24 @@ func TestCursorSettingsUnavailableStateCannotExposeUnscopedUsage(t *testing.T) {
 	require.Contains(t, report.Unavailable[0].Message, "Cannot read the saved Cursor team")
 }
 
+func TestCursorSettingsFailedVerificationDoesNotRetainPriorUsage(t *testing.T) {
+	p, host := newCursorSettingsPlugin(t, codexbarConfig(map[string]any{cursorTeamSetting: cursorSelectedTeam, "codexbar_providers": "cursor"}))
+	first := p.pollOnce(context.Background(), 0)
+	require.Len(t, first.Providers, 1)
+	require.Equal(t, cursorSelectedTeam, first.Providers[0].TeamID)
+
+	host.readError = errors.New("unavailable storage")
+	second := p.pollOnce(context.Background(), 0)
+	require.Empty(t, second.Providers, "failed team verification must not restore cached Cursor usage")
+	require.Len(t, second.Unavailable, 1)
+	require.Equal(t, "cursor", second.Unavailable[0].Provider)
+	cached, _ := p.currentSnapshot()
+	require.Same(t, second, cached)
+	projection := providerUsageProjection(cached, time.Time{}, p.now(), "workspace")
+	require.Len(t, projection["providers"].([]any), 1)
+	require.Equal(t, "unknown", projection["providers"].([]any)[0].(map[string]any)["availability_state"])
+}
+
 func TestCursorSettingsListErrorsAndMethods(t *testing.T) {
 	for _, teams := range []string{`{"teams":[]}`, `{"teams":{}}`, `unavailable`} {
 		t.Run(teams, func(t *testing.T) {

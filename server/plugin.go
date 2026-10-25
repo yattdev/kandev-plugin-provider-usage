@@ -200,6 +200,9 @@ func (p *plugin) pollOnce(ctx context.Context, maxAge time.Duration) *AllProvide
 				prior[usage.Provider] = usage
 			}
 			for _, unavailable := range report.Unavailable {
+				if unavailable.Provider == "cursor" && report.cursorVerificationFailed {
+					continue
+				}
 				if usage, ok := prior[unavailable.Provider]; ok {
 					report.Providers = append(report.Providers, usage)
 				}
@@ -437,6 +440,9 @@ type AllProvidersReport struct {
 	PollMinutes float64         `json:"poll_minutes"`
 	Providers   []ProviderUsage `json:"providers"`
 	Unavailable []ProviderError `json:"unavailable"`
+	// A failed saved-team check must not resurrect an unverified Cursor value
+	// from an earlier poll. Ordinary provider failures may retain their cache.
+	cursorVerificationFailed bool
 }
 
 func (p *plugin) providersJSON(ctx context.Context, refresh bool) []byte {
@@ -671,6 +677,10 @@ func (p *plugin) enrichCursor(ctx context.Context, report *AllProvidersReport) e
 }
 
 func cursorUnavailable(report *AllProvidersReport, err error) {
+	var selectedTeam *cursorTeamSelectionError
+	if errors.As(err, &selectedTeam) {
+		report.cursorVerificationFailed = true
+	}
 	providers := report.Providers[:0]
 	for _, usage := range report.Providers {
 		if usage.Provider != "cursor" {

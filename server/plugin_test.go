@@ -830,6 +830,28 @@ func TestPollOnceDedupsWithinMaxAge(t *testing.T) {
 	require.Equal(t, int32(2), atomic.LoadInt32(&calls), "maxAge 0 forces a rebuild")
 }
 
+func TestPollOnceRetainsOrdinaryProviderFailure(t *testing.T) {
+	var fail atomic.Bool
+	p := newTestPlugin(t, codexbarConfig(map[string]any{"codexbar_providers": "claude"}), nil,
+		func(_ context.Context, _ string, args ...string) ([]byte, error) {
+			if len(args) > 0 && args[len(args)-1] == "--version" {
+				return []byte("CodexBar 0.45.2\n"), nil
+			}
+			if fail.Load() {
+				return nil, errors.New("temporary provider failure")
+			}
+			return []byte(sampleClaudeJSON), nil
+		})
+	first := p.pollOnce(context.Background(), 0)
+	require.Len(t, first.Providers, 1)
+	fail.Store(true)
+	second := p.pollOnce(context.Background(), 0)
+	require.Len(t, second.Providers, 1)
+	require.Equal(t, first.Providers[0], second.Providers[0])
+	require.Len(t, second.Unavailable, 1)
+	require.Equal(t, "claude", second.Unavailable[0].Provider)
+}
+
 func TestProviderErrMessage(t *testing.T) {
 	failed := errors.New("exit status 1: not signed in")
 
