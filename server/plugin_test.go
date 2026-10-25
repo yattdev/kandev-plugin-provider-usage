@@ -890,6 +890,23 @@ func TestPollOnceRetainsReportWideFailure(t *testing.T) {
 	}
 }
 
+func TestPollOnceDoesNotReviveAugmentAfterCredentialsRemoved(t *testing.T) {
+	config := codexbarConfig(map[string]any{"codexbar_providers": "all"})
+	p := newTestPlugin(t, config, nil, func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		if len(args) > 0 && args[len(args)-1] == "--version" {
+			return nil, errors.New("probe failed")
+		}
+		return nil, errors.New("unreachable")
+	})
+	p.snapshot = &AllProvidersReport{Providers: []ProviderUsage{{Provider: "augment", Detail: "old budget"}, {Provider: "codex"}}}
+	report := p.pollOnce(context.Background(), 0)
+	require.Len(t, report.Providers, 1)
+	require.Equal(t, "codex", report.Providers[0].Provider)
+	for _, unavailable := range report.Unavailable {
+		require.NotEqual(t, "augment", unavailable.Provider)
+	}
+}
+
 func TestProviderErrMessage(t *testing.T) {
 	failed := errors.New("exit status 1: not signed in")
 

@@ -230,6 +230,11 @@ func (p *plugin) pollOnce(ctx context.Context, maxAge time.Duration) *AllProvide
 					if seen[id] || providerDisabled(cfg, id) || (id == "cursor" && report.cursorVerificationFailed) {
 						continue
 					}
+					// A removed Augment credential disables its independent API
+					// source. A simultaneous CodexBar failure must not revive it.
+					if id == "augment" && (trimmedString(cfg[configKeyAugmentToken]) == "" || trimmedString(cfg[configKeyAugmentEmail]) == "") {
+						continue
+					}
 					report.Unavailable = append(report.Unavailable, ProviderError{Provider: id, Kind: globalFailure.Kind, Message: globalFailure.Message})
 					expanded = true
 				}

@@ -5,6 +5,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"strings"
@@ -94,19 +96,21 @@ func providerUsageRecord(u ProviderUsage, fetched, now time.Time, staleAfter int
 	var earliest time.Time
 	for i, w := range u.Windows {
 		windowState := "available"
-		if w.UtilizationPct >= 100 && u.Provider != "augment" {
+		if stale {
+			windowState = "telemetry_stale"
+		} else if w.UtilizationPct >= 100 && u.Provider != "augment" {
 			windowState = "quota_exhausted"
 		}
-		if w.UtilizationPct >= 100 && !w.Scoped && u.Provider != "augment" {
+		if !stale && w.UtilizationPct >= 100 && !w.Scoped && u.Provider != "augment" {
 			state = "quota_exhausted"
 			if w.ResetAt.After(now) && (earliest.IsZero() || w.ResetAt.Before(earliest)) {
 				earliest = w.ResetAt
 			}
 		}
-		if w.UtilizationPct >= 100 && w.Scoped {
+		if !stale && w.UtilizationPct >= 100 && w.Scoped {
 			warnings = append(warnings, "A scoped usage window is exhausted.")
 		}
-		if w.UtilizationPct >= 100 && u.Provider == "augment" {
+		if !stale && w.UtilizationPct >= 100 && u.Provider == "augment" {
 			warnings = append(warnings, "Augment display budget reached; provider quota is unverified.")
 		}
 		percent := boundedPercent(w.UtilizationPct)
@@ -140,6 +144,13 @@ func providerUsageRecord(u ProviderUsage, fetched, now time.Time, staleAfter int
 
 func stableWindowID(i int, w UtilizationWindow) string {
 	if w.Scoped {
+		if w.sourceExtraID != "" {
+			sum := sha256.Sum256([]byte(w.sourceExtraID))
+			return "extra-id-" + hex.EncodeToString(sum[:8])
+		}
+		if w.sourceExtraAt != nil {
+			return fmt.Sprintf("extra-slot-%d", *w.sourceExtraAt+1)
+		}
 		return "extra-" + strings.ToLower(strings.ReplaceAll(w.Label, " ", "-"))
 	}
 	if w.sourceSlot != nil {

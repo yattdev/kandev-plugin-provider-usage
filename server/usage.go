@@ -32,6 +32,9 @@ type UtilizationWindow struct {
 	// sourceSlot keeps a primary/secondary/tertiary identity after absent
 	// source windows have been removed from the display slice.
 	sourceSlot *int
+	// Extra windows keep their adapter ID even if their display title changes.
+	sourceExtraID string
+	sourceExtraAt *int
 }
 
 // Pace carries codexbar's optional burn-rate summary for a window ("52% in
@@ -408,7 +411,7 @@ func (u *cbUsage) windows(provider string) []UtilizationWindow {
 		}
 		out = append(out, window)
 	}
-	for _, ex := range u.Extra {
+	for i, ex := range u.Extra {
 		if ex.Window == nil {
 			continue
 		}
@@ -421,6 +424,9 @@ func (u *cbUsage) windows(provider string) []UtilizationWindow {
 		}
 		w := ex.Window.toWindow(label)
 		w.Scoped = true
+		w.sourceExtraID = ex.ID
+		extraAt := i
+		w.sourceExtraAt = &extraAt
 		out = append(out, w)
 	}
 	return out

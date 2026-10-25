@@ -80,7 +80,7 @@ agent_tools:
                     utilization_percentage: {type: number, minimum: 0, maximum: 100}
                     remaining_percentage: {type: number, minimum: 0, maximum: 100}
                     reset_at: {type: [string, "null"], format: date-time}
-                    availability_state: {type: string, enum: [available, quota_exhausted]}
+                    availability_state: {type: string, enum: [available, quota_exhausted, telemetry_stale]}
               reason:
                 type: object
                 additionalProperties: false

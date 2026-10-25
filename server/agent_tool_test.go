@@ -90,6 +90,7 @@ func TestProviderUsageRecordStaleTelemetryDoesNotRetainQuotaExhaustionReason(t *
 	}, time.Time{}, now, 600)
 	require.Equal(t, "telemetry_stale", r["availability_state"])
 	require.NotContains(t, r, "reason", "stale telemetry cannot claim current quota exhaustion")
+	require.Equal(t, "telemetry_stale", r["windows"].([]any)[0].(map[string]any)["availability_state"])
 }
 
 func TestProviderUsageRecordExhaustionIgnoresScopedWindow(t *testing.T) {
@@ -135,6 +136,21 @@ func TestWindowIDPreservesSourceSlotWhenPrimaryIsMissing(t *testing.T) {
 	second := providerUsageRecord(ProviderUsage{Provider: "codex", Windows: withoutPrimary}, now, now, 600)
 	require.Equal(t, "window-2", first["windows"].([]any)[1].(map[string]any)["window_id"])
 	require.Equal(t, "window-2", second["windows"].([]any)[0].(map[string]any)["window_id"])
+}
+
+func TestExtraWindowIDUsesSourceIdentityNotDisplayTitle(t *testing.T) {
+	now := time.Date(2026, 10, 25, 12, 0, 0, 0, time.UTC)
+	usage := &cbUsage{Extra: []cbExtra{
+		{ID: "alpha", Title: "Requests", Window: &cbWindow{UsedPercent: 25}},
+		{ID: "beta", Title: "Requests", Window: &cbWindow{UsedPercent: 30}},
+	}}
+	first := providerUsageRecord(ProviderUsage{Provider: "codex", Windows: usage.windows("codex")}, now, now, 600)
+	firstWindows := first["windows"].([]any)
+	firstID := firstWindows[0].(map[string]any)["window_id"]
+	require.NotEqual(t, firstID, firstWindows[1].(map[string]any)["window_id"])
+	usage.Extra[0].Title = "Renamed"
+	second := providerUsageRecord(ProviderUsage{Provider: "codex", Windows: usage.windows("codex")}, now, now, 600)
+	require.Equal(t, firstID, second["windows"].([]any)[0].(map[string]any)["window_id"])
 }
 
 func TestProviderUsageProjectionRetainsOneRecordAfterRefreshFailure(t *testing.T) {
