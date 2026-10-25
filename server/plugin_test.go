@@ -852,6 +852,44 @@ func TestPollOnceRetainsOrdinaryProviderFailure(t *testing.T) {
 	require.Equal(t, "claude", second.Unavailable[0].Provider)
 }
 
+func TestPollOnceRetainsReportWideFailure(t *testing.T) {
+	for _, failure := range []string{"sweep", "probe"} {
+		t.Run(failure, func(t *testing.T) {
+			var fail atomic.Bool
+			p := newTestPlugin(t, codexbarConfig(map[string]any{"codexbar_providers": "all"}), nil,
+				func(_ context.Context, _ string, args ...string) ([]byte, error) {
+					if len(args) > 0 && args[len(args)-1] == "--version" {
+						if fail.Load() && failure == "probe" {
+							return nil, errors.New("probe failed")
+						}
+						return []byte("CodexBar 0.45.2\n"), nil
+					}
+					if fail.Load() {
+						return nil, errors.New("sweep failed")
+					}
+					return []byte("[" + sampleClaudeInner() + "," + sampleCodexEntry + "]"), nil
+				})
+			first := p.pollOnce(context.Background(), 0)
+			require.Len(t, first.Providers, 2)
+			fail.Store(true)
+			second := p.pollOnce(context.Background(), 0)
+			require.Len(t, second.Providers, 2)
+			for _, id := range []string{"claude", "codex"} {
+				require.Condition(t, func() bool {
+					for _, item := range second.Unavailable {
+						if item.Provider == id && item.Kind == "provider_unavailable" {
+							return true
+						}
+					}
+					return false
+				})
+			}
+			projection := providerUsageProjection(second, p.now(), p.now(), "workspace")
+			require.True(t, projection["partial"].(bool))
+		})
+	}
+}
+
 func TestProviderErrMessage(t *testing.T) {
 	failed := errors.New("exit status 1: not signed in")
 

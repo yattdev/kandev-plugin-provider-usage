@@ -106,7 +106,7 @@ func TestProviderUsageRecordBoundsWindowPercentagesForAgentSchema(t *testing.T) 
 		used, want     float64
 		state          string
 	}{
-		{"over-budget Augment", "augment", 120, 100, "quota_exhausted"},
+		{"over-budget Augment", "augment", 120, 100, "available"},
 		{"over-budget Cursor", "cursor", 175, 100, "quota_exhausted"},
 		{"negative source value", "cursor", -5, 0, "available"},
 		{"nonfinite source value", "cursor", math.NaN(), 0, "available"},
@@ -117,8 +117,24 @@ func TestProviderUsageRecordBoundsWindowPercentagesForAgentSchema(t *testing.T) 
 			require.Equal(t, tc.want, window["utilization_percentage"])
 			require.Equal(t, 100-tc.want, window["remaining_percentage"])
 			require.Equal(t, tc.state, r["availability_state"])
+			if tc.provider == "augment" {
+				require.Equal(t, "available", window["availability_state"])
+				require.NotContains(t, r, "reason")
+				require.NotEmpty(t, r["warnings"])
+			}
 		})
 	}
+}
+
+func TestWindowIDPreservesSourceSlotWhenPrimaryIsMissing(t *testing.T) {
+	now := time.Date(2026, 10, 25, 12, 0, 0, 0, time.UTC)
+	secondary := &cbWindow{UsedPercent: 30, WindowMinutes: 10080}
+	withPrimary := (&cbUsage{Primary: &cbWindow{UsedPercent: 10, WindowMinutes: 300}, Secondary: secondary}).windows("codex")
+	withoutPrimary := (&cbUsage{Secondary: secondary}).windows("codex")
+	first := providerUsageRecord(ProviderUsage{Provider: "codex", Windows: withPrimary}, now, now, 600)
+	second := providerUsageRecord(ProviderUsage{Provider: "codex", Windows: withoutPrimary}, now, now, 600)
+	require.Equal(t, "window-2", first["windows"].([]any)[1].(map[string]any)["window_id"])
+	require.Equal(t, "window-2", second["windows"].([]any)[0].(map[string]any)["window_id"])
 }
 
 func TestProviderUsageProjectionRetainsOneRecordAfterRefreshFailure(t *testing.T) {

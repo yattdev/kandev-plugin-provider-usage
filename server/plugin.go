@@ -199,12 +199,57 @@ func (p *plugin) pollOnce(ctx context.Context, maxAge time.Duration) *AllProvide
 			for _, usage := range p.snapshot.Providers {
 				prior[usage.Provider] = usage
 			}
+			present := make(map[string]bool, len(report.Providers))
+			for _, usage := range report.Providers {
+				present[usage.Provider] = true
+			}
+			// A failed all-provider sweep or CLI probe has no per-provider
+			// failures. Expand it over prior values so consumers can keep usable
+			// telemetry while seeing that the latest refresh failed.
+			var globalFailure *ProviderError
+			for i := range report.Unavailable {
+				if report.Unavailable[i].Provider == providersAll {
+					globalFailure = &report.Unavailable[i]
+					break
+				}
+			}
+			if globalFailure == nil && !report.Codexbar.Installed {
+				globalFailure = &ProviderError{Kind: "provider_unavailable", Message: "CodexBar probe failed"}
+			}
+			if globalFailure != nil {
+				seen := make(map[string]bool, len(report.Providers)+len(report.Unavailable))
+				for id := range present {
+					seen[id] = true
+				}
+				for _, failure := range report.Unavailable {
+					seen[failure.Provider] = true
+				}
+				cfg := p.config(runCtx)
+				expanded := false
+				for id := range prior {
+					if seen[id] || providerDisabled(cfg, id) || (id == "cursor" && report.cursorVerificationFailed) {
+						continue
+					}
+					report.Unavailable = append(report.Unavailable, ProviderError{Provider: id, Kind: globalFailure.Kind, Message: globalFailure.Message})
+					expanded = true
+				}
+				if expanded {
+					failures := report.Unavailable[:0]
+					for _, failure := range report.Unavailable {
+						if failure.Provider != providersAll {
+							failures = append(failures, failure)
+						}
+					}
+					report.Unavailable = failures
+				}
+			}
 			for _, unavailable := range report.Unavailable {
 				if unavailable.Provider == "cursor" && report.cursorVerificationFailed {
 					continue
 				}
-				if usage, ok := prior[unavailable.Provider]; ok {
+				if usage, ok := prior[unavailable.Provider]; ok && !present[unavailable.Provider] {
 					report.Providers = append(report.Providers, usage)
+					present[unavailable.Provider] = true
 				}
 			}
 		}
@@ -586,6 +631,7 @@ func (p *plugin) collectProviders(ctx context.Context) *AllProvidersReport {
 		if err := p.enrichCursor(ctx, report); err != nil {
 			cursorUnavailable(report, err)
 		}
+		p.appendAugment(ctx, report)
 		return report
 	}
 

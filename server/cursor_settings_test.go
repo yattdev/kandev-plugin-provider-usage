@@ -158,21 +158,28 @@ func TestCursorSettingsUnavailableStateCannotExposeUnscopedUsage(t *testing.T) {
 }
 
 func TestCursorSettingsFailedVerificationDoesNotRetainPriorUsage(t *testing.T) {
-	p, host := newCursorSettingsPlugin(t, codexbarConfig(map[string]any{cursorTeamSetting: cursorSelectedTeam, "codexbar_providers": "cursor"}))
+	p, host := newCursorSettingsPlugin(t, codexbarConfig(map[string]any{cursorTeamSetting: cursorSelectedTeam, "codexbar_providers": "cursor,codex"}))
+	p.run = providerRunner(nil, map[string][]byte{"cursor": []byte(cursorEnterpriseCLI), "codex": []byte("[" + sampleCodexEntry + "]")})
 	first := p.pollOnce(context.Background(), 0)
-	require.Len(t, first.Providers, 1)
-	require.Equal(t, cursorSelectedTeam, first.Providers[0].TeamID)
+	require.Len(t, first.Providers, 2)
+	for _, usage := range first.Providers {
+		if usage.Provider == "cursor" {
+			require.Equal(t, cursorSelectedTeam, usage.TeamID)
+		}
+	}
 
 	host.readError = errors.New("unavailable storage")
 	second := p.pollOnce(context.Background(), 0)
-	require.Empty(t, second.Providers, "failed team verification must not restore cached Cursor usage")
+	require.Len(t, second.Providers, 1, "other provider usage survives failed Cursor verification")
+	require.Equal(t, "codex", second.Providers[0].Provider)
 	require.Len(t, second.Unavailable, 1)
 	require.Equal(t, "cursor", second.Unavailable[0].Provider)
 	cached, _ := p.currentSnapshot()
 	require.Same(t, second, cached)
 	projection := providerUsageProjection(cached, time.Time{}, p.now(), "workspace")
-	require.Len(t, projection["providers"].([]any), 1)
-	require.Equal(t, "unknown", projection["providers"].([]any)[0].(map[string]any)["availability_state"])
+	require.Len(t, projection["providers"].([]any), 2)
+	require.Equal(t, "codex", projection["providers"].([]any)[0].(map[string]any)["provider_id"])
+	require.Equal(t, "unknown", projection["providers"].([]any)[1].(map[string]any)["availability_state"])
 }
 
 func TestCursorSettingsListErrorsAndMethods(t *testing.T) {

@@ -94,10 +94,10 @@ func providerUsageRecord(u ProviderUsage, fetched, now time.Time, staleAfter int
 	var earliest time.Time
 	for i, w := range u.Windows {
 		windowState := "available"
-		if w.UtilizationPct >= 100 {
+		if w.UtilizationPct >= 100 && u.Provider != "augment" {
 			windowState = "quota_exhausted"
 		}
-		if w.UtilizationPct >= 100 && !w.Scoped {
+		if w.UtilizationPct >= 100 && !w.Scoped && u.Provider != "augment" {
 			state = "quota_exhausted"
 			if w.ResetAt.After(now) && (earliest.IsZero() || w.ResetAt.Before(earliest)) {
 				earliest = w.ResetAt
@@ -105,6 +105,9 @@ func providerUsageRecord(u ProviderUsage, fetched, now time.Time, staleAfter int
 		}
 		if w.UtilizationPct >= 100 && w.Scoped {
 			warnings = append(warnings, "A scoped usage window is exhausted.")
+		}
+		if w.UtilizationPct >= 100 && u.Provider == "augment" {
+			warnings = append(warnings, "Augment display budget reached; provider quota is unverified.")
 		}
 		percent := boundedPercent(w.UtilizationPct)
 		window := map[string]any{"window_id": stableWindowID(i, w), "window_name": w.Label, "window_seconds": nil, "scoped": w.Scoped, "utilization_percentage": percent, "remaining_percentage": 100 - percent, "reset_at": nil, "availability_state": windowState}
@@ -138,6 +141,9 @@ func providerUsageRecord(u ProviderUsage, fetched, now time.Time, staleAfter int
 func stableWindowID(i int, w UtilizationWindow) string {
 	if w.Scoped {
 		return "extra-" + strings.ToLower(strings.ReplaceAll(w.Label, " ", "-"))
+	}
+	if w.sourceSlot != nil {
+		return fmt.Sprintf("window-%d", *w.sourceSlot+1)
 	}
 	return fmt.Sprintf("window-%d", i+1)
 }

@@ -29,6 +29,9 @@ type UtilizationWindow struct {
 	// Keep Codex pace with its window: omitted primary/secondary slots are
 	// removed from Windows, so array indices cannot identify their pace sides.
 	Pace *Pace `json:"pace,omitempty"`
+	// sourceSlot keeps a primary/secondary/tertiary identity after absent
+	// source windows have been removed from the display slice.
+	sourceSlot *int
 }
 
 // Pace carries codexbar's optional burn-rate summary for a window ("52% in
@@ -394,6 +397,8 @@ func (u *cbUsage) windows(provider string) []UtilizationWindow {
 			continue
 		}
 		window := w.toWindow(defaultWindowLabel(i, w.WindowMinutes))
+		slot := i
+		window.sourceSlot = &slot
 		switch provider {
 		case "cursor":
 			window.Label = []string{"Total Usage", "Auto Usage", "API Usage"}[i]
