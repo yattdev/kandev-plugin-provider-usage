@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.10.0] - 2026-10-05
+
+### Changed
+
+- feat: use host Action for provider usage topbar (#30) (66269a7)
+
+
+## [0.9.5] - 2026-09-30
+
+### Changed
+
+- Include release archive hashes in checksums (#33) (623c0d0)
+
+
+## [0.9.4] - 2026-09-30
+
+### Changed
+
+- Show Codex reserve and deficit percentages (#32) (574e3f8)
+
+
 ## [0.9.3] - 2026-09-17
 
 ### Changed
