@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -98,6 +99,28 @@ func TestProviderUsageRecordExhaustionIgnoresScopedWindow(t *testing.T) {
 	require.NotEmpty(t, r["warnings"])
 }
 
+func TestProviderUsageRecordBoundsWindowPercentagesForAgentSchema(t *testing.T) {
+	now := time.Date(2026, 10, 25, 12, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name, provider string
+		used, want     float64
+		state          string
+	}{
+		{"over-budget Augment", "augment", 120, 100, "quota_exhausted"},
+		{"over-budget Cursor", "cursor", 175, 100, "quota_exhausted"},
+		{"negative source value", "cursor", -5, 0, "available"},
+		{"nonfinite source value", "cursor", math.NaN(), 0, "available"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := providerUsageRecord(ProviderUsage{Provider: tc.provider, Windows: []UtilizationWindow{{Label: "monthly", UtilizationPct: tc.used, ResetAt: now.Add(time.Hour)}}}, now, now, 600)
+			window := r["windows"].([]any)[0].(map[string]any)
+			require.Equal(t, tc.want, window["utilization_percentage"])
+			require.Equal(t, 100-tc.want, window["remaining_percentage"])
+			require.Equal(t, tc.state, r["availability_state"])
+		})
+	}
+}
+
 func TestProviderUsageProjectionRetainsOneRecordAfterRefreshFailure(t *testing.T) {
 	now := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
 	snap := &AllProvidersReport{
@@ -128,6 +151,7 @@ func TestClassifyProviderErrorRecognizesUpstreamAuthAndAvailabilityFailures(t *t
 		{"provider", "No Cursor session found.", "not_configured"},
 		{"provider", "Provider not installed: Codex auth.json not found.", "not_configured"},
 		{"provider_unavailable", "upstream unavailable", "provider_unavailable"},
+		{"unsupported", "provider is unsupported", "unsupported"},
 		{"provider", "unrecognized future provider failure", ""},
 	} {
 		t.Run(tc.message, func(t *testing.T) {

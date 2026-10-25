@@ -696,6 +696,8 @@ func classifyProviderError(kind, message string) string {
 		return "not_configured"
 	case "provider_unavailable", "provider-unavailable", "unavailable":
 		return "provider_unavailable"
+	case "unsupported", "not_supported", "not-supported":
+		return "unsupported"
 	}
 	message = strings.ToLower(strings.TrimSpace(message))
 	for _, marker := range []string{

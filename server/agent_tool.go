@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -105,8 +106,9 @@ func providerUsageRecord(u ProviderUsage, fetched, now time.Time, staleAfter int
 		if w.UtilizationPct >= 100 && w.Scoped {
 			warnings = append(warnings, "A scoped usage window is exhausted.")
 		}
-		window := map[string]any{"window_id": stableWindowID(i, w), "window_name": w.Label, "window_seconds": nil, "scoped": w.Scoped, "utilization_percentage": w.UtilizationPct, "remaining_percentage": maxPercent(100 - w.UtilizationPct), "reset_at": nil, "availability_state": windowState}
-		if w.WindowSeconds != nil {
+		percent := boundedPercent(w.UtilizationPct)
+		window := map[string]any{"window_id": stableWindowID(i, w), "window_name": w.Label, "window_seconds": nil, "scoped": w.Scoped, "utilization_percentage": percent, "remaining_percentage": 100 - percent, "reset_at": nil, "availability_state": windowState}
+		if w.WindowSeconds != nil && *w.WindowSeconds >= 0 {
 			window["window_seconds"] = *w.WindowSeconds
 		}
 		if !w.ResetAt.IsZero() {
@@ -139,9 +141,12 @@ func stableWindowID(i int, w UtilizationWindow) string {
 	}
 	return fmt.Sprintf("window-%d", i+1)
 }
-func maxPercent(v float64) float64 {
-	if v < 0 {
+func boundedPercent(v float64) float64 {
+	if math.IsNaN(v) || v < 0 {
 		return 0
+	}
+	if v > 100 {
+		return 100
 	}
 	return v
 }
